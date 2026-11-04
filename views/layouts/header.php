@@ -43,10 +43,13 @@ $roleLabels = [
             <div style="font-size:12px;color:var(--gold);margin-top:4px;"><?= $roleLabels[$user['VaiTro']] ?? '' ?></div>
         </div>
         <nav style="flex:1;">
-            <a class="nav-item active" href="index.php?controller=dashboard&action=index">🏠 Tổng quan & Khóa học</a>
+            <a class="nav-item <?= ((($_GET['controller'] ?? 'dashboard') === 'dashboard') ? 'active' : '') ?>" href="index.php?controller=dashboard&action=index">🏠 Tổng quan & Khóa học</a>
+            <a class="nav-item <?= ((($_GET['controller'] ?? '') === 'adminLearning') ? 'active' : '') ?>" href="index.php?controller=adminLearning&action=index">📚 Quản lý Hoạt động học tập</a>
+            <a class="nav-item <?= ((($_GET['controller'] ?? '') === 'adminGrading') ? 'active' : '') ?>" href="index.php?controller=adminGrading&action=index">📝 Chấm điểm & Nhận xét</a>
         </nav>
-        <a class="nav-item" href="index.php?controller=auth&action=logout" style="color:#ff8a8a;">🚪 Đăng xuất</a>
+        <a class="nav-item" href="index.php?controller=auth&action=logout" style="color:#ff8a8a;margin-top:auto;">🚪 Đăng xuất</a>
     </div>
+
     <div class="main-content">
         <div class="topbar">
             <div style="font-size:20px;font-weight:700;">Hệ thống LMS — KOS English Center</div>
