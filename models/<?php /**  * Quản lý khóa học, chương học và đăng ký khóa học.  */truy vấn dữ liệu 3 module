@@ -101,6 +101,29 @@ class CourseModel extends BaseModel
         );
     }
 
+    public function getStudentIdForUser(int $userId): ?int
+    {
+        $row = $this->queryOne(
+            'SELECT MaHocVien FROM HocVien WHERE MaHocVien = :user_id',
+            ['user_id' => $userId]
+        );
+        return $row === null ? null : (int) $row['MaHocVien'];
+    }
+
+    public function getTeacherIdForUser(int $userId): ?int
+    {
+        $row = $this->queryOne(
+            "SELECT gv.MaGiaoVien
+             FROM GiaoVien gv
+             JOIN NguoiDung nd ON nd.MaNguoiDung = gv.MaGiaoVien
+             WHERE nd.MaNguoiDung = :user_id
+               AND nd.VaiTro = 'teacher'
+               AND nd.TrangThai = 'active'",
+            ['user_id' => $userId]
+        );
+        return $row === null ? null : (int) $row['MaGiaoVien'];
+    }
+
     public function isCourseOwnedBy(int $courseId, int $teacherId): bool
     {
         return $this->queryOne(
@@ -109,7 +132,7 @@ class CourseModel extends BaseModel
         ) !== null;
     }
 
-    public function saveCourse(?int $courseId, array $course): int
+    public function saveCourse(?int $courseId, array $course, bool $submitForApproval = false): int
     {
         $fields = [
             'TenKhoaHoc' => $course['TenKhoaHoc'],
@@ -123,26 +146,86 @@ class CourseModel extends BaseModel
             'TrangThai' => $course['TrangThai'],
         ];
 
-        if ($courseId === null) {
-            $fields['TrangThaiDuyet'] = $course['TrangThaiDuyet'];
-            $columns = implode(', ', array_keys($fields));
-            $placeholders = implode(', ', array_map(static fn (string $field): string => ':' . $field, array_keys($fields)));
-            $this->execute("INSERT INTO KhoaHoc ({$columns}) VALUES ({$placeholders})", $fields);
-            return $this->lastInsertId();
-        }
+        $this->db->beginTransaction();
+        try {
+            if ($courseId === null) {
+                $fields['TrangThaiDuyet'] = $course['TrangThaiDuyet'];
+                $columns = implode(', ', array_keys($fields));
+                $placeholders = implode(', ', array_map(static fn (string $field): string => ':' . $field, array_keys($fields)));
+                $this->execute("INSERT INTO KhoaHoc ({$columns}) VALUES ({$placeholders})", $fields);
+                $courseId = $this->lastInsertId();
+            } else {
+                $fields['TrangThaiDuyet'] = $course['TrangThaiDuyet'];
+                $set = implode(', ', array_map(static fn (string $field): string => "{$field} = :{$field}", array_keys($fields)));
+                $fields['MaKhoaHoc'] = $courseId;
+                $this->execute("UPDATE KhoaHoc SET {$set} WHERE MaKhoaHoc = :MaKhoaHoc", $fields);
+            }
 
-        $set = implode(', ', array_map(static fn (string $field): string => "{$field} = :{$field}", array_keys($fields)));
-        $fields['MaKhoaHoc'] = $courseId;
-        $this->execute("UPDATE KhoaHoc SET {$set} WHERE MaKhoaHoc = :MaKhoaHoc", $fields);
-        return $courseId;
+            if ($submitForApproval) {
+                $reviewer = $this->queryOne(
+                    "SELECT MaNguoiDung FROM NguoiDung
+                     WHERE VaiTro = 'training' AND TrangThai = 'active'
+                     ORDER BY MaNguoiDung LIMIT 1"
+                );
+                if ($reviewer === null) {
+                    throw new DomainException('Không tìm thấy tài khoản đào tạo đang hoạt động để nhận duyệt.');
+                }
+                $this->execute(
+                    "INSERT INTO DuyetKhoaHoc (MaKhoaHoc, MaNguoiDuyet, TrangThai, NhanXet)
+                     VALUES (:course, :reviewer, 'pending', :comment)",
+                    [
+                        'course' => $courseId,
+                        'reviewer' => $reviewer['MaNguoiDung'],
+                        'comment' => 'Khóa học được gửi để bộ phận đào tạo xét duyệt.',
+                    ]
+                );
+            }
+
+            $this->db->commit();
+            return $courseId;
+        } catch (Throwable $exception) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $exception;
+        }
     }
 
-    public function setApprovalStatus(int $courseId, string $status): bool
+    public function setApprovalStatus(int $courseId, string $status, int $reviewerId): bool
     {
-        return $this->execute(
-            "UPDATE KhoaHoc SET TrangThaiDuyet = :status WHERE MaKhoaHoc = :id",
-            ['status' => $status, 'id' => $courseId]
-        );
+        $this->db->beginTransaction();
+        try {
+            $course = $this->queryOne(
+                "SELECT TrangThaiDuyet FROM KhoaHoc WHERE MaKhoaHoc = :id FOR UPDATE",
+                ['id' => $courseId]
+            );
+            if ($course === null || $course['TrangThaiDuyet'] !== 'pending') {
+                $this->db->rollBack();
+                return false;
+            }
+
+            $this->execute(
+                "UPDATE KhoaHoc SET TrangThaiDuyet = :status WHERE MaKhoaHoc = :id",
+                ['status' => $status, 'id' => $courseId]
+            );
+            $this->execute(
+                'INSERT INTO DuyetKhoaHoc (MaKhoaHoc, MaNguoiDuyet, TrangThai, NhanXet)
+                 VALUES (:course, :reviewer, :status, :comment)',
+                [
+                    'course' => $courseId,
+                    'reviewer' => $reviewerId,
+                    'status' => $status,
+                    'comment' => $status === 'approved' ? 'Khóa học đã được duyệt.' : 'Khóa học chưa được duyệt.',
+                ]
+            );
+            $this->db->commit();
+            return true;
+        } catch (Throwable $exception) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $exception;
+        }
     }
 
     public function deleteCourse(int $courseId): bool
@@ -187,7 +270,11 @@ class CourseModel extends BaseModel
     {
         return array_map(
             static fn (array $row): int => (int) $row['MaKhoaHoc'],
-            $this->queryAll('SELECT MaKhoaHoc FROM DangKyKhoaHoc WHERE MaHocVien = :student', ['student' => $studentId])
+            $this->queryAll(
+                "SELECT MaKhoaHoc FROM DangKyKhoaHoc
+                 WHERE MaHocVien = :student AND TrangThaiTT <> 'cancelled'",
+                ['student' => $studentId]
+            )
         );
     }
 
@@ -226,14 +313,31 @@ class CourseModel extends BaseModel
         if ($course === null) {
             throw new DomainException('Khóa học không còn mở đăng ký.');
         }
-        if ($this->queryOne(
-            'SELECT MaDangKy FROM DangKyKhoaHoc WHERE MaHocVien = :student AND MaKhoaHoc = :course',
+        $registration = $this->queryOne(
+            'SELECT MaDangKy, TrangThaiTT FROM DangKyKhoaHoc WHERE MaHocVien = :student AND MaKhoaHoc = :course',
             ['student' => $studentId, 'course' => $courseId]
-        ) !== null) {
+        );
+        if ($registration !== null && $registration['TrangThaiTT'] !== 'cancelled') {
             throw new DomainException('Bạn đã đăng ký khóa học này.');
         }
 
         $transactionCode = 'KOS-' . $courseId . '-' . strtoupper(bin2hex(random_bytes(5)));
+        if ($registration !== null) {
+            $this->execute(
+                "UPDATE DangKyKhoaHoc
+                 SET SoTien = :amount, PhuongThucTT = :method, MaGDNganHang = :transaction,
+                     TrangThaiTT = 'pending', PhanTramHoanThanh = 0, SoHoatDongDaHoc = 0,
+                     NgayDangKy = CURRENT_TIMESTAMP
+                 WHERE MaDangKy = :registration",
+                [
+                    'amount' => $course['Gia'],
+                    'method' => $paymentMethod,
+                    'transaction' => $transactionCode,
+                    'registration' => $registration['MaDangKy'],
+                ]
+            );
+            return;
+        }
         $this->execute(
             "INSERT INTO DangKyKhoaHoc
                 (MaHocVien, MaKhoaHoc, SoTien, PhuongThucTT, MaGDNganHang, TrangThaiTT)
