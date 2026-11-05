@@ -6,6 +6,8 @@ $roleLabels = [
     'training' => 'Bộ phận đào tạo',
     'manager'  => 'Bộ phận quản lý'
 ];
+$currentController = $_GET['controller'] ?? 'dashboard';
+$role = $user['VaiTro'] ?? 'student';
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -40,13 +42,22 @@ $roleLabels = [
         <div class="logo-text">KOS<span> English</span></div>
         <div class="user-box">
             <div style="font-weight:700;font-size:15px;"><?= htmlspecialchars($user['HoTen'] ?? '') ?></div>
-            <div style="font-size:12px;color:var(--gold);margin-top:4px;"><?= $roleLabels[$user['VaiTro']] ?? '' ?></div>
+            <div style="font-size:12px;color:var(--gold);margin-top:4px;"><?= $roleLabels[$role] ?? 'Thành viên' ?></div>
         </div>
+        
         <nav style="flex:1;">
-            <a class="nav-item <?= ((($_GET['controller'] ?? 'dashboard') === 'dashboard') ? 'active' : '') ?>" href="index.php?controller=dashboard&action=index">🏠 Tổng quan & Khóa học</a>
-            <a class="nav-item <?= ((($_GET['controller'] ?? '') === 'adminLearning') ? 'active' : '') ?>" href="index.php?controller=adminLearning&action=index">📚 Quản lý Hoạt động học tập</a>
-            <a class="nav-item <?= ((($_GET['controller'] ?? '') === 'adminGrading') ? 'active' : '') ?>" href="index.php?controller=adminGrading&action=index">📝 Chấm điểm & Nhận xét</a>
+            <!-- Mục chung mà cả Học viên và Giáo viên đều vào được -->
+            <a class="nav-item <?= ($currentController === 'dashboard') ? 'active' : '' ?>" href="index.php?controller=dashboard&action=index">🏠 Tổng quan & Khóa học</a>
+
+            <?php if ($role == 'teacher' || $role == 'training' || $role == 'manager'): ?>
+                <a class="nav-item <?= ($currentController === 'adminLearning') ? 'active' : '' ?>" href="index.php?controller=adminLearning&action=index">📚 Quản lý Hoạt động học tập</a>
+                <a class="nav-item <?= ($currentController === 'adminGrading') ? 'active' : '' ?>" href="index.php?controller=adminGrading&action=index">📝 Chấm điểm & Nhận xét</a>
+            <?php endif; ?>
+
+            <!-- Phòng học dành cho học viên hoặc xem trải nghiệm -->
+            <a class="nav-item <?= ($currentController === 'clientLearning') ? 'active' : '' ?>" href="index.php?controller=clientLearning&action=show&course_id=1">🎓 Phòng học Học viên</a>
         </nav>
+
         <a class="nav-item" href="index.php?controller=auth&action=logout" style="color:#ff8a8a;margin-top:auto;">🚪 Đăng xuất</a>
     </div>
 

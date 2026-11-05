@@ -9,6 +9,20 @@ class AdminLearningController extends BaseController
 
     public function __construct()
     {
+        // Lấy thông tin user đang đăng nhập
+        $user = Session::getUser();
+        
+        // Nếu chưa đăng nhập HOẶC tài khoản là học viên -> Chặn và đá văng về trang chủ
+        if (!$user || $user['VaiTro'] === 'student') {
+            Session::setFlash([
+                'type' => 'error', 
+                'message' => 'Truy cập bị từ chối! Bạn không có quyền quản trị.'
+            ]);
+            header('Location: index.php?controller=dashboard&action=index');
+            exit();
+        }
+
+        // Khởi tạo model đúng chuẩn bên trong hàm khởi tạo
         $this->learningModel = new LearningModel();
     }
 
@@ -34,9 +48,11 @@ class AdminLearningController extends BaseController
         ]);
     }
 
-    // 2. Xử lý Thêm mới hoạt động học tập
+    // 2. Xử lý Thêm mới hoạt động học tập (Đã đồng bộ bắt course_id để điều hướng chính xác)
     public function create()
     {
+        $courseId = $_GET['course_id'] ?? $_POST['course_id'] ?? 1;
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $data = [
                 'MaChuong' => $_POST['MaChuong'] ?? 1,
@@ -47,7 +63,8 @@ class AdminLearningController extends BaseController
                 'DiemToiDa' => $_POST['DiemToiDa'] ?? 10.0,
                 'HanNop' => !empty($_POST['HanNop']) ? $_POST['HanNop'] : null,
                 'ThuTu' => $_POST['ThuTu'] ?? 1,
-                'TrangThai' => $_POST['TrangThai'] ?? 'published'
+                'TrangThai' => $_POST['TrangThai'] ?? 'published',
+                'DuLieuQuizJSON' => $_POST['DuLieuQuizJSON'] ?? null
             ];
 
             // Xử lý upload file đính kèm trực tiếp an toàn (PDF, ZIP, PPTX)
@@ -74,23 +91,29 @@ class AdminLearningController extends BaseController
 
             // Gọi Model để thêm vào CSDL
             $this->learningModel->insertActivity($data);
-            header('Location: index.php?controller=adminLearning&action=index');
+            
+            // Chuyển hướng thông minh về đúng khóa học đang quản lý nếu có course_id
+            header('Location: index.php?controller=adminLearning&action=index&course_id=' . $courseId);
             exit();
         }
 
         // Lấy danh sách chương học để hiển thị dropdown chọn MaChuong
         $chapters = $this->learningModel->getAllChapters();
-        $this->view('admin/learning/create', ['chapters' => $chapters]);
+        $this->view('admin/learning/create', [
+            'chapters' => $chapters,
+            'courseId' => $courseId
+        ]);
     }
 
-    // 3. Xử lý Chỉnh sửa hoạt động học tập (Bổ sung mới)
+    // 3. Xử lý Chỉnh sửa hoạt động học tập
     public function edit()
     {
         $id = $_GET['id'] ?? 0;
+        $courseId = $_GET['course_id'] ?? 1;
         $activity = $this->learningModel->getById($id);
         
         if (!$activity) {
-            header('Location: index.php?controller=adminLearning&action=index');
+            header('Location: index.php?controller=adminLearning&action=index&course_id=' . $courseId);
             exit();
         }
 
@@ -122,14 +145,15 @@ class AdminLearningController extends BaseController
 
             // Gọi Model cập nhật CSDL
             $this->learningModel->updateActivity($id, $data);
-            header('Location: index.php?controller=adminLearning&action=index');
+            header('Location: index.php?controller=adminLearning&action=index&course_id=' . $courseId);
             exit();
         }
 
         $chapters = $this->learningModel->getAllChapters();
         $this->view('admin/learning/edit', [
             'activity' => $activity,
-            'chapters' => $chapters
+            'chapters' => $chapters,
+            'courseId' => $courseId
         ]);
     }
 
@@ -137,10 +161,11 @@ class AdminLearningController extends BaseController
     public function delete()
     {
         $id = $_GET['id'] ?? 0;
+        $courseId = $_GET['course_id'] ?? 1;
         if ($id > 0) {
             $this->learningModel->deleteActivity($id);
         }
-        header('Location: index.php?controller=adminLearning&action=index');
+        header('Location: index.php?controller=adminLearning&action=index&course_id=' . $courseId);
         exit();
     }
 }

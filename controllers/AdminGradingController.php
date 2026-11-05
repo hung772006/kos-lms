@@ -5,6 +5,20 @@ class AdminGradingController extends BaseController
 
     public function __construct()
     {
+        // Lấy thông tin user đang đăng nhập
+        $user = Session::getUser();
+        
+        // Nếu chưa đăng nhập HOẶC tài khoản là học viên -> Chặn và đá văng về trang chủ
+        if (!$user || $user['VaiTro'] === 'student') {
+            Session::setFlash([
+                'type' => 'error', 
+                'message' => 'Truy cập bị từ chối! Bạn không có quyền quản trị.'
+            ]);
+            header('Location: index.php?controller=dashboard&action=index');
+            exit();
+        }
+
+        // Khởi tạo model bên trong đúng hàm __construct()
         $this->learningModel = new LearningModel();
     }
 
