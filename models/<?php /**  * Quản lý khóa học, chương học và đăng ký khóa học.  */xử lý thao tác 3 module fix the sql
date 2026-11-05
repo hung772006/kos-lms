@@ -33,8 +33,18 @@ class DashboardController extends BaseController
             $category = '';
         }
 
-        $studentId = $isStudent ? (int) $user['MaNguoiDung'] : null;
-        $teacherId = $user['VaiTro'] === 'teacher' ? (int) $user['MaNguoiDung'] : null;
+        $studentId = $isStudent
+            ? $this->courseModel->getStudentIdForUser((int) $user['MaNguoiDung'])
+            : null;
+        if ($isStudent && $studentId === null) {
+            $this->redirect('index.php?controller=auth&action=logout', 'error', 'Tài khoản học viên chưa có hồ sơ học viên hợp lệ.');
+        }
+        $teacherId = $user['VaiTro'] === 'teacher'
+            ? $this->courseModel->getTeacherIdForUser((int) $user['MaNguoiDung'])
+            : null;
+        if ($user['VaiTro'] === 'teacher' && $teacherId === null) {
+            $this->redirect('index.php?controller=auth&action=logout', 'error', 'Tài khoản giáo viên chưa có hồ sơ giáo viên hợp lệ.');
+        }
         $excludeStudentId = $isStudent && $view === 'courses' ? $studentId : null;
         $onlyApproved = $isStudent;
         $page = max(1, (int) ($_GET['page'] ?? 1));
@@ -138,7 +148,7 @@ class DashboardController extends BaseController
         }
 
         $teacherId = $user['VaiTro'] === 'teacher'
-            ? (int) $user['MaNguoiDung']
+            ? ($this->courseModel->getTeacherIdForUser((int) $user['MaNguoiDung']) ?? 0)
             : max(0, (int) ($_POST['NguoiTao'] ?? 0));
         if ($teacherId < 1) {
             $this->redirect($this->dashboardUrl('manage'), 'error', 'Vui lòng chọn giáo viên phụ trách khóa học.');
@@ -171,20 +181,24 @@ class DashboardController extends BaseController
         $courseStatus = $today < $startDate ? 'upcoming' : ($today > $endDate ? 'ended' : 'active');
         $approvalStatus = $user['VaiTro'] === 'teacher'
             ? 'pending'
-            : ($existing['TrangThaiDuyet'] ?? 'pending');
+            : ($existing['TrangThaiDuyet'] ?? 'approved');
 
-        $this->courseModel->saveCourse($courseId > 0 ? $courseId : null, [
-            'TenKhoaHoc' => $name,
-            'DanhMuc' => $category,
-            'MoTa' => $description,
-            'Gia' => $price,
-            'AnhBia' => $coverPath,
-            'NgayBatDau' => $startDate,
-            'NgayKetThuc' => $endDate,
-            'NguoiTao' => $teacherId,
-            'TrangThai' => $courseStatus,
-            'TrangThaiDuyet' => $approvalStatus,
-        ]);
+        try {
+            $this->courseModel->saveCourse($courseId > 0 ? $courseId : null, [
+                'TenKhoaHoc' => $name,
+                'DanhMuc' => $category,
+                'MoTa' => $description,
+                'Gia' => $price,
+                'AnhBia' => $coverPath,
+                'NgayBatDau' => $startDate,
+                'NgayKetThuc' => $endDate,
+                'NguoiTao' => $teacherId,
+                'TrangThai' => $courseStatus,
+                'TrangThaiDuyet' => $approvalStatus,
+            ], $user['VaiTro'] === 'teacher');
+        } catch (DomainException $exception) {
+            $this->redirect($this->dashboardUrl('manage'), 'error', $exception->getMessage());
+        }
 
         $this->redirect(
             $this->dashboardUrl('manage'),
@@ -210,14 +224,21 @@ class DashboardController extends BaseController
 
     public function approveCourse(): void
     {
-        $this->requireRoles(['training', 'manager']);
+        $this->requireRoles(['training']);
         $this->verifyCsrf();
         $courseId = max(0, (int) ($_POST['MaKhoaHoc'] ?? 0));
         $status = $_POST['TrangThaiDuyet'] ?? '';
         if ($courseId < 1 || !in_array($status, ['approved', 'rejected'], true)) {
             $this->redirect($this->dashboardUrl('manage'), 'error', 'Yêu cầu duyệt khóa học không hợp lệ.');
         }
-        $this->courseModel->setApprovalStatus($courseId, $status);
+        $updated = $this->courseModel->setApprovalStatus(
+            $courseId,
+            $status,
+            (int) Session::getUser()['MaNguoiDung']
+        );
+        if (!$updated) {
+            $this->redirect($this->dashboardUrl('manage'), 'error', 'Khóa học không còn ở trạng thái chờ duyệt.');
+        }
         $this->redirect(
             $this->dashboardUrl('manage'),
             'success',
@@ -277,7 +298,11 @@ class DashboardController extends BaseController
         }
 
         try {
-            $this->courseModel->registerStudent((int) $user['MaNguoiDung'], $courseId, $paymentMethod);
+            $studentId = $this->courseModel->getStudentIdForUser((int) $user['MaNguoiDung']);
+            if ($studentId === null) {
+                $this->redirect($this->dashboardUrl('courses'), 'error', 'Tài khoản chưa có hồ sơ học viên hợp lệ.');
+            }
+            $this->courseModel->registerStudent($studentId, $courseId, $paymentMethod);
         } catch (DomainException $exception) {
             $this->redirect($this->dashboardUrl('courses'), 'error', $exception->getMessage());
         }
@@ -292,7 +317,8 @@ class DashboardController extends BaseController
     private function canManageCourse(int $courseId, array $user): bool
     {
         if ($user['VaiTro'] === 'teacher') {
-            return $this->courseModel->isCourseOwnedBy($courseId, (int) $user['MaNguoiDung']);
+            $teacherId = $this->courseModel->getTeacherIdForUser((int) $user['MaNguoiDung']);
+            return $teacherId !== null && $this->courseModel->isCourseOwnedBy($courseId, $teacherId);
         }
         return in_array($user['VaiTro'], ['training', 'manager'], true)
             && $this->courseModel->getCourseById($courseId) !== null;
