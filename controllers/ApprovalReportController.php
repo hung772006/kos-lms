@@ -103,3 +103,35 @@ class ApprovalReportController extends BaseController
         ]);
     }
 }
+// Ví dụ trong hành động duyệt khóa học (approve/reject):
+require_once __DIR__ . '/../models/ThongBaoModel.php';
+$thongBaoModel = new ThongBaoModel();
+
+// Lấy MaGiaoVien (MaNguoiNhan) từ thông tin khóa học
+// $khoaHoc['MaGiaoVien'] chính là ID giáo viên sở hữu khóa học
+
+if ($action === 'approve') {
+    // Cập nhật trạng thái khóa học thành approved...
+    
+    // Tự động tạo thông báo gửi cho Giáo viên
+    $thongBaoModel->createNotification(
+        $khoaHoc['MaGiaoVien'], // MaNguoiNhan
+        Session::getUser()['MaNguoiDung'], // MaNguoiGui (Bộ phận đào tạo)
+        $khoaHoc['MaKhoaHoc'], // MaKhoaHoc
+        null, // MaHoatDong
+        'approval',
+        'Khóa học đã được phê duyệt',
+        'Khóa học "' . $khoaHoc['TenKhoaHoc'] . '" của bạn đã được Bộ phận đào tạo phê duyệt thành công.'
+    );
+} else {
+    // Từ chối khóa học...
+    $thongBaoModel->createNotification(
+        $khoaHoc['MaGiaoVien'],
+        Session::getUser()['MaNguoiDung'],
+        $khoaHoc['MaKhoaHoc'],
+        null,
+        'approval',
+        'Khóa học chờ duyệt bổ sung',
+        'Khóa học "' . $khoaHoc['TenKhoaHoc'] . '" cần chỉnh sửa lại theo lý do: ' . $lyDo
+    );
+}
