@@ -43,17 +43,7 @@ $roleLabels = [
             <div style="font-size:12px;color:var(--gold);margin-top:4px;"><?= $roleLabels[$user['VaiTro']] ?? '' ?></div>
         </div>
         <nav style="flex:1;">
-           <a class="nav-item <?= ($_GET['action'] ?? '') === 'index' ? 'active' : '' ?>" href="index.php?controller=dashboard&action=index">🏠 Tổng quan & Khóa học</a>
-    
-    <!-- Chỉ hiện nút "Phê duyệt khóa học" khi đăng nhập tài khoản Bộ phận đào tạo -->
-    <?php if (($user['VaiTro'] ?? '') === 'training'): ?>
-        <a class="nav-item <?= ($_GET['action'] ?? '') === 'approvalcourses' ? 'active' : '' ?>" href="index.php?controller=dashboard&action=approvalcourses">📝 Phê duyệt khóa học</a>
-    <?php endif; ?>
-
-    <!-- Chỉ hiện nút "Báo cáo thống kê" khi đăng nhập tài khoản Bộ phận quản lý -->
-    <?php if (($user['VaiTro'] ?? '') === 'manager'): ?>
-        <a class="nav-item <?= ($_GET['action'] ?? '') === 'reports' ? 'active' : '' ?>" href="index.php?controller=dashboard&action=reports">📊 Báo cáo thống kê</a>
-    <?php endif; ?>
+            <a class="nav-item active" href="index.php?controller=dashboard&action=index">🏠 Tổng quan & Khóa học</a>
         </nav>
         <a class="nav-item" href="index.php?controller=auth&action=logout" style="color:#ff8a8a;">🚪 Đăng xuất</a>
     </div>
