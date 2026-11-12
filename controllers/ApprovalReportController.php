@@ -19,7 +19,9 @@ class ApprovalReportController extends BaseController
      */
     public function index(): void
     {
-        $role = Session::getUser()['VaiTro'] ?? 'student';
+        $user = Session::getUser() ?? [];
+        $role = $user['VaiTro'] ?? 'student';
+
         if ($role === 'training') {
             $this->approvals();
             return;
@@ -38,10 +40,10 @@ class ApprovalReportController extends BaseController
     {
         $this->requireRoles(['training']);
 
-        $user    = Session::getUser();
+        $user    = Session::getUser() ?? [];
         $keyword = trim((string) ($_GET['q'] ?? ''));
         $page    = max(1, (int) ($_GET['page'] ?? 1));
-        $limit   = ITEMS_PER_PAGE;
+        $limit   = defined('ITEMS_PER_PAGE') ? (int) ITEMS_PER_PAGE : 10;
 
         $totalPending   = $this->model->countPendingCourses($keyword);
         $pagination     = new Pagination($totalPending, $limit, $page);
@@ -74,7 +76,7 @@ class ApprovalReportController extends BaseController
             $this->redirect('index.php?controller=approvalreport&action=approvals');
         }
 
-        $user     = Session::getUser();
+        $user     = Session::getUser() ?? [];
         $adminId  = (int) ($user['MaNguoiDung'] ?? 0);
         $courseId = max(0, (int) ($_POST['course_id'] ?? 0));
         $status   = trim((string) ($_POST['status'] ?? ''));
@@ -123,7 +125,7 @@ class ApprovalReportController extends BaseController
     {
         $this->requireRoles(['manager']);
 
-        $user          = Session::getUser();
+        $user          = Session::getUser() ?? [];
         $keyword       = trim((string) ($_GET['q'] ?? ''));
         $overviewStats = $this->model->getOverviewStats();
         $courseStats   = $this->model->getCourseStatistics($keyword);
@@ -199,11 +201,12 @@ class ApprovalReportController extends BaseController
      */
     public function notifications(): void
     {
-        $user   = Session::getUser();
-        $userId = (int) ($user['MaNguoiDung'] ?? 0);
-        $filter = in_array($_GET['filter'] ?? 'all', ['all', 'unread'], true) ? $_GET['filter'] : 'all';
-        $page   = max(1, (int) ($_GET['page'] ?? 1));
-        $limit  = ITEMS_PER_PAGE;
+        $user      = Session::getUser() ?? [];
+        $userId    = (int) ($user['MaNguoiDung'] ?? 0);
+        $rawFilter = trim((string) ($_GET['filter'] ?? 'all'));
+        $filter    = in_array($rawFilter, ['all', 'unread'], true) ? $rawFilter : 'all';
+        $page      = max(1, (int) ($_GET['page'] ?? 1));
+        $limit     = defined('ITEMS_PER_PAGE') ? (int) ITEMS_PER_PAGE : 10;
 
         $totalItems    = $this->model->countNotificationsByUser($userId, $filter);
         $unreadCount   = $this->model->countUnreadByUser($userId);
@@ -236,7 +239,7 @@ class ApprovalReportController extends BaseController
      */
     public function markRead(): void
     {
-        $user   = Session::getUser();
+        $user   = Session::getUser() ?? [];
         $userId = (int) ($user['MaNguoiDung'] ?? 0);
         $id     = max(0, (int) ($_POST['id'] ?? $_GET['id'] ?? 0));
 
@@ -252,7 +255,7 @@ class ApprovalReportController extends BaseController
      */
     public function markAllRead(): void
     {
-        $user   = Session::getUser();
+        $user   = Session::getUser() ?? [];
         $userId = (int) ($user['MaNguoiDung'] ?? 0);
         $this->model->markAllAsRead($userId);
 
@@ -267,7 +270,7 @@ class ApprovalReportController extends BaseController
         $this->requireRoles(['teacher']);
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $user   = Session::getUser();
+            $user   = Session::getUser() ?? [];
             $userId = (int) ($user['MaNguoiDung'] ?? 0);
 
             $this->model->saveNotificationSettings($userId, [
