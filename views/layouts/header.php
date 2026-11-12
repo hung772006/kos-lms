@@ -17,33 +17,33 @@ $activeView        = $_GET['view'] ?? ($isStudent ? 'courses' : 'manage');
 $menusByRole = [
     'student' => [
         ['label' => 'Khám phá khóa học', 'icon' => '◈', 'url' => 'index.php?controller=dashboard&action=index&view=courses', 'active' => ($currentController === 'dashboard' && $activeView === 'courses')],
-        ['label' => 'Khóa học của tôi',  'icon' => '▣', 'url' => 'index.php?controller=dashboard&action=index&view=mine',    'active' => ($currentController === 'dashboard' && $activeView === 'mine') || $currentController === 'learning'],
+        ['label' => 'Khóa học của tôi',  'icon' => '▣', 'url' => 'index.php?controller=dashboard&action=index&view=mine',    'active' => ($currentController === 'dashboard' && $activeView === 'mine') || $currentController === 'clientlearning'],
         ['label' => 'Thông báo',         'icon' => '🔔', 'url' => 'index.php?controller=approvalreport&action=notifications', 'active' => ($currentController === 'approvalreport' && $currentAction === 'notifications')],
         ['label' => 'Hồ sơ cá nhân',     'icon' => '👤', 'url' => 'index.php?controller=auth&action=profile',                 'active' => ($currentController === 'auth' && $currentAction === 'profile')],
     ],
     'teacher' => [
-        ['label' => 'Quản lý khóa học',  'icon' => '◈', 'url' => 'index.php?controller=dashboard&action=index&view=manage',  'active' => ($currentController === 'dashboard')],
-        ['label' => 'Nội dung & Chấm bài','icon' => '📝', 'url' => 'index.php?controller=learning&action=manage',             'active' => ($currentController === 'learning')],
-        ['label' => 'Thông báo',         'icon' => '🔔', 'url' => 'index.php?controller=approvalreport&action=notifications', 'active' => ($currentController === 'approvalreport' && $currentAction === 'notifications')],
-        ['label' => 'Hồ sơ cá nhân',     'icon' => '👤', 'url' => 'index.php?controller=auth&action=profile',                 'active' => ($currentController === 'auth' && $currentAction === 'profile')],
+        ['label' => 'Quản lý khóa học',   'icon' => '◈', 'url' => 'index.php?controller=dashboard&action=index&view=manage',  'active' => ($currentController === 'dashboard')],
+        ['label' => 'Nội dung & Chấm bài','icon' => '📝', 'url' => 'index.php?controller=adminlearning&action=index',          'active' => in_array($currentController, ['adminlearning', 'admingrading'], true)],
+        ['label' => 'Thông báo',          'icon' => '🔔', 'url' => 'index.php?controller=approvalreport&action=notifications', 'active' => ($currentController === 'approvalreport' && $currentAction === 'notifications')],
+        ['label' => 'Hồ sơ cá nhân',      'icon' => '👤', 'url' => 'index.php?controller=auth&action=profile',                 'active' => ($currentController === 'auth' && $currentAction === 'profile')],
     ],
     'training' => [
-        ['label' => 'Phê duyệt khóa học','icon' => '✓', 'url' => 'index.php?controller=approvalreport&action=approvals',     'active' => ($currentController === 'approvalreport' && $currentAction === 'approvals')],
-        ['label' => 'Danh sách khóa học','icon' => '◈', 'url' => 'index.php?controller=dashboard&action=index&view=manage',  'active' => ($currentController === 'dashboard')],
-        ['label' => 'Thông báo',         'icon' => '🔔', 'url' => 'index.php?controller=approvalreport&action=notifications', 'active' => ($currentController === 'approvalreport' && $currentAction === 'notifications')],
-        ['label' => 'Hồ sơ cá nhân',     'icon' => '👤', 'url' => 'index.php?controller=auth&action=profile',                 'active' => ($currentController === 'auth' && $currentAction === 'profile')],
+        ['label' => 'Phê duyệt khóa học', 'icon' => '✓', 'url' => 'index.php?controller=approvalreport&action=approvals',     'active' => ($currentController === 'approvalreport' && $currentAction === 'approvals')],
+        ['label' => 'Danh sách khóa học', 'icon' => '◈', 'url' => 'index.php?controller=dashboard&action=index&view=manage',  'active' => ($currentController === 'dashboard')],
+        ['label' => 'Thông báo',          'icon' => '🔔', 'url' => 'index.php?controller=approvalreport&action=notifications', 'active' => ($currentController === 'approvalreport' && $currentAction === 'notifications')],
+        ['label' => 'Hồ sơ cá nhân',      'icon' => '👤', 'url' => 'index.php?controller=auth&action=profile',                 'active' => ($currentController === 'auth' && $currentAction === 'profile')],
     ],
     'manager' => [
-        ['label' => 'Quản lý người dùng','icon' => '👥', 'url' => 'index.php?controller=user&action=index',                   'active' => ($currentController === 'user')],
-        ['label' => 'Quản lý khóa học',  'icon' => '◈', 'url' => 'index.php?controller=dashboard&action=index&view=manage',  'active' => ($currentController === 'dashboard')],
-        ['label' => 'Báo cáo thống kê',  'icon' => '📊', 'url' => 'index.php?controller=approvalreport&action=reports',       'active' => ($currentController === 'approvalreport' && $currentAction === 'reports')],
-        ['label' => 'Thông báo',         'icon' => '🔔', 'url' => 'index.php?controller=approvalreport&action=notifications', 'active' => ($currentController === 'approvalreport' && $currentAction === 'notifications')],
-        ['label' => 'Hồ sơ cá nhân',     'icon' => '👤', 'url' => 'index.php?controller=auth&action=profile',                 'active' => ($currentController === 'auth' && $currentAction === 'profile')],
+        ['label' => 'Quản lý người dùng', 'icon' => '👥', 'url' => 'index.php?controller=user&action=index',                   'active' => ($currentController === 'user')],
+        ['label' => 'Quản lý khóa học',   'icon' => '◈', 'url' => 'index.php?controller=dashboard&action=index&view=manage',  'active' => ($currentController === 'dashboard')],
+        ['label' => 'Nội dung & Bài nộp', 'icon' => '📝', 'url' => 'index.php?controller=adminlearning&action=index',          'active' => in_array($currentController, ['adminlearning', 'admingrading'], true)],
+        ['label' => 'Báo cáo thống kê',   'icon' => '📊', 'url' => 'index.php?controller=approvalreport&action=reports',       'active' => ($currentController === 'approvalreport' && $currentAction === 'reports')],
+        ['label' => 'Thông báo',          'icon' => '🔔', 'url' => 'index.php?controller=approvalreport&action=notifications', 'active' => ($currentController === 'approvalreport' && $currentAction === 'notifications')],
+        ['label' => 'Hồ sơ cá nhân',      'icon' => '👤', 'url' => 'index.php?controller=auth&action=profile',                 'active' => ($currentController === 'auth' && $currentAction === 'profile')],
     ],
 ];
 $navigation = $menusByRole[$currentRole] ?? $menusByRole['student'];
 
-// Tự động xác định tiêu đề trang theo màn hình đang mở (cho phép View ghi đè bằng $pageTitle)
 if (!isset($pageTitle) || $pageTitle === '') {
     $pageTitle = 'Hệ thống LMS';
     foreach ($navigation as $item) {
@@ -54,7 +54,6 @@ if (!isset($pageTitle) || $pageTitle === '') {
     }
 }
 
-// Xử lý chữ cái đầu & đường dẫn ảnh đại diện thật
 $avatarInitial = '?';
 if (preg_match('/^./u', trim((string) ($user['HoTen'] ?? '')), $avatarMatch) === 1) {
     $avatarInitial = mb_strtoupper($avatarMatch[0], 'UTF-8');
