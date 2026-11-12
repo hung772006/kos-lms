@@ -20,10 +20,23 @@ require_once __DIR__ . '/models/ApprovalReportModel.php';
 
 Session::start();
 
-$controllerName = ucfirst(strtolower($_GET['controller'] ?? 'auth')) . 'Controller';
-$actionName     = strtolower($_GET['action'] ?? 'login');
+$rawController  = preg_replace('/[^a-zA-Z0-9]/', '', $_GET['controller'] ?? 'auth');
+$controllerName = ucfirst(strtolower($rawController ?: 'auth')) . 'Controller';
+$actionName     = preg_replace('/[^a-zA-Z0-9_]/', '', $_GET['action'] ?? 'login') ?: 'login';
 
 $controllerFile = __DIR__ . '/controllers/' . $controllerName . '.php';
+
+// Hỗ trợ khớp chính xác tên file Controller ghép nhiều từ (VD: ClientLearningController, AdminGradingController)
+if (!file_exists($controllerFile)) {
+    foreach (glob(__DIR__ . '/controllers/*Controller.php') ?: [] as $file) {
+        if (strcasecmp(basename($file), $controllerName . '.php') === 0) {
+            $controllerFile = $file;
+            $controllerName = pathinfo($file, PATHINFO_FILENAME);
+            break;
+        }
+    }
+}
+
 if (!file_exists($controllerFile)) {
     die("Không tìm thấy Controller: {$controllerName}");
 }

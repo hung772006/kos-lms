@@ -1,162 +1,318 @@
 <?php
+/**
+ * Class ClientLearningController: Điều phối Xem bài giảng, Tải tài liệu, Nộp bài tập và Làm Quiz ở Client
+ * Người phụ trách: Nguyễn Thị Khánh (Nhánh feature/khanh-learning)
+ */
+
 class ClientLearningController extends BaseController
 {
-    private $learningModel;
+    private LearningModel $learningModel;
+    private CourseModel $courseModel;
 
     public function __construct()
     {
+        $this->requireLogin();
         $this->learningModel = new LearningModel();
+        $this->courseModel   = new CourseModel();
     }
 
-    // Hiển thị giao diện học tập chi tiết của khóa học
-    public function show()
+    /**
+     * Hỗ trợ điều hướng mặc định nếu gọi action=index
+     */
+    public function index(): void
     {
-        $courseId = $_GET['course_id'] ?? 1;
-        $maHocVien = $_SESSION['user_id'] ?? 1; // ID học viên đang đăng nhập
-        
-        // Lấy danh sách hoạt động học tập thuộc khóa học này
-        $activities = $this->learningModel->getActivitiesByCourseId((int)$courseId);
+        $this->show();
+    }
 
-        // Lấy danh sách bài nộp của học viên để check trạng thái đã hoàn thành
-        $submittedList = $this->learningModel->getSubmissionsByStudent((int)$maHocVien);
-        $submittedActivityIds = array_column($submittedList, 'MaHoatDong');
+    /**
+     * 1. Hiển thị không gian học tập chi tiết của khóa học (Video/Slide, Tài liệu, Bài tập, Quiz)
+     */
+    public function show(): void
+    {
+        $user     = Session::getUser();
+        $courseId = max(1, (int) ($_GET['course_id'] ?? 1));
+        $userId   = (int) ($user['MaNguoiDung'] ?? 0);
 
-        // Phân loại dữ liệu linh hoạt hơn để không bị sót video do khác tên định dạng Loai
-        $videos = array_filter($activities, function($item) {
-            $loai = strtolower(trim($item['Loai'] ?? ''));
-            return in_array($loai, ['video', 'bai_giang', 'lectures']) || !empty($item['LinkVideo']);
+        $course = $this->courseModel->getCourseDetail($courseId);
+        if ($course === null) {
+            $this->redirect('index.php?controller=dashboard&action=index', 'error', 'Không tìm thấy khóa học yêu cầu.');
+        }
+
+        // Nếu là Học viên thì kiểm tra đã đăng ký khóa học chưa
+        $maHocVien = $userId;
+        if (($user['VaiTro'] ?? '') === 'student') {
+            $studentId = $this->courseModel->getStudentIdForUser($userId);
+            if ($studentId === null) {
+                $this->redirect('index.php?controller=auth&action=logout', 'error', 'Hồ sơ học viên không hợp lệ.');
+            }
+            $maHocVien   = $studentId;
+            $enrolledIds = $this->courseModel->getStudentCourseIds($maHocVien);
+            if (!in_array($courseId, $enrolledIds, true)) {
+                $this->redirect(
+                    'index.php?controller=dashboard&action=index&view=courses&detail=' . $courseId,
+                    'error',
+                    'Vui lòng đăng ký khóa học trước khi truy cập nội dung học tập!'
+                );
+            }
+        }
+
+        // Lấy danh sách hoạt động đã công bố thuộc đúng khóa học
+        $activities = $this->learningModel->getActivitiesByCourseId($courseId);
+
+        // Lấy lịch sử bài nộp & điểm số của học viên hiện tại
+        $submittedList        = $this->learningModel->getSubmissionsByStudent($maHocVien);
+        $submittedActivityIds = array_map('intval', array_column($submittedList, 'MaHoatDong'));
+        $submissionsMap       = [];
+        foreach ($submittedList as $sub) {
+            $actKey = (int) $sub['MaHoatDong'];
+            if (!isset($submissionsMap[$actKey])) {
+                $submissionsMap[$actKey] = $sub;
+            }
+        }
+
+        // Phân loại hoạt động ra các tab Bài học, Bài tập/Quiz và Tài liệu tải về
+        $videos = array_filter($activities, static function (array $item): bool {
+            $loai = strtolower(trim((string) ($item['Loai'] ?? '')));
+            return in_array($loai, ['video', 'bai_giang', 'lectures'], true) || !empty($item['LinkVideo']);
         });
 
-        $assignments = array_filter($activities, fn($item) => in_array(strtolower(trim($item['Loai'] ?? '')), ['assignment', 'quiz', 'bai_tap']));
-        $materials = array_filter($activities, fn($item) => !empty($item['FileDinhKem']));
+        $assignments = array_filter($activities, static function (array $item): bool {
+            $loai = strtolower(trim((string) ($item['Loai'] ?? '')));
+            return in_array($loai, ['assignment', 'quiz', 'bai_tap'], true);
+        });
+
+        $materials = array_filter($activities, static fn (array $item): bool => !empty($item['FileDinhKem']));
+
+        // Tính phần trăm tiến độ hiện tại của khóa học
+        $totalAct = $this->learningModel->getTotalActivitiesByCourse($courseId);
+        $doneAct  = $this->learningModel->getCompletedActivitiesCount($maHocVien, $courseId);
+        $progress = count($activities) > 0 ? min(100, round(($doneAct / $totalAct) * 100, 0)) : 0;
 
         $this->view('client/learning/show', [
-            'activities' => $activities,
-            'videos' => array_values($videos), // Reset lại key mảng cho chuẩn
-            'assignments' => array_values($assignments),
-            'materials' => array_values($materials),
+            'user'                 => $user,
+            'course'               => $course,
+            'courseId'             => $courseId,
+            'progress'             => $progress,
+            'activities'           => $activities,
+            'videos'               => array_values($videos),
+            'assignments'          => array_values($assignments),
+            'materials'            => array_values($materials),
             'submittedActivityIds' => $submittedActivityIds,
-            'courseId' => $courseId
+            'submissionsMap'       => $submissionsMap,
+            'pageTitle'            => $course['TenKhoaHoc'] ?? 'Tham gia học tập',
         ]);
     }
 
-    // Xử lý nộp bài tập tự luận từ Client
-    public function uploadAssignment()
+    /**
+     * 2. Xử lý Học viên nộp file bài tập tự luận ở Client (Sử dụng class FileUploader chuẩn)
+     */
+    public function uploadAssignment(): void
     {
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $maHoatDong = $_POST['MaHoatDong'] ?? 0;
-            $courseId = $_POST['course_id'] ?? 1;
-            $maHocVien = $_SESSION['user_id'] ?? 1;
+        $this->requireRoles(['student']);
 
-            if (isset($_FILES['FileBaiNop']) && $_FILES['FileBaiNop']['error'] === UPLOAD_ERR_OK) {
-                $fileTmpPath = $_FILES['FileBaiNop']['tmp_name'];
-                $fileName = $_FILES['FileBaiNop']['name'];
-                $uploadFileDir = './uploads/submissions/';
-                
-                if (!is_dir($uploadFileDir)) {
-                    mkdir($uploadFileDir, 0777, true);
-                }
-
-                $dest_path = $uploadFileDir . time() . '_' . basename($fileName);
-
-                if (move_uploaded_file($fileTmpPath, $dest_path)) {
-                    // Lưu vào bảng BaiNop thông qua LearningModel
-                    $this->learningModel->addSubmission([
-                        'MaHoatDong' => $maHoatDong,
-                        'MaHocVien' => $maHocVien,
-                        'FileBaiNop' => $dest_path,
-                        'NoiDungBaiLam' => 'Học viên nộp file tự luận.'
-                    ]);
-
-                    // Cập nhật tiến độ học tập tự động vào bảng DangKyKhoaHoc
-                    $this->updateProgress($maHocVien, $maHoatDong);
-                }
-            }
-            // Chuyển hướng về đúng khóa học đang học
-            header('Location: index.php?controller=clientLearning&action=show&course_id=' . $courseId);
-            exit();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('index.php?controller=dashboard&action=index&view=mine');
         }
+
+        $user       = Session::getUser();
+        $maHocVien  = $this->courseModel->getStudentIdForUser((int) ($user['MaNguoiDung'] ?? 0));
+        $maHoatDong = max(0, (int) ($_POST['MaHoatDong'] ?? 0));
+        $courseId   = max(1, (int) ($_POST['course_id'] ?? 1));
+        $ghiChu     = trim((string) ($_POST['NoiDungBaiLam'] ?? ''));
+
+        if ($maHocVien === null || $maHoatDong < 1) {
+            $this->redirect(
+                'index.php?controller=clientlearning&action=show&course_id=' . $courseId,
+                'error',
+                'Thông tin bài tập nộp không hợp lệ.'
+            );
+        }
+
+        $realCourseId = $this->learningModel->getCourseIdByActivity($maHoatDong) ?? $courseId;
+        $enrolledIds  = $this->courseModel->getStudentCourseIds($maHocVien);
+        if (!in_array($realCourseId, $enrolledIds, true)) {
+            $this->redirect('index.php?controller=dashboard&action=index&view=courses', 'error', 'Bạn chưa đăng ký khóa học này.');
+        }
+
+        if (!isset($_FILES['FileBaiNop']) || $_FILES['FileBaiNop']['error'] === UPLOAD_ERR_NO_FILE) {
+            $this->redirect(
+                'index.php?controller=clientlearning&action=show&course_id=' . $realCourseId,
+                'error',
+                'Vui lòng chọn file bài làm (.pdf, .docx, .zip...) trước khi bấm nộp!'
+            );
+        }
+
+        $uploader = new FileUploader('submissions', ['pdf', 'doc', 'docx', 'zip', 'pptx', 'txt', 'png', 'jpg', 'jpeg'], 50);
+        $upload   = $uploader->upload($_FILES['FileBaiNop']);
+
+        if (!$upload['success']) {
+            $this->redirect(
+                'index.php?controller=clientlearning&action=show&course_id=' . $realCourseId,
+                'error',
+                $upload['error']
+            );
+        }
+
+        $this->learningModel->addSubmission([
+            'MaHoatDong'    => $maHoatDong,
+            'MaHocVien'     => $maHocVien,
+            'FileBaiNop'    => $upload['path'],
+            'NoiDungBaiLam' => $ghiChu !== '' ? $ghiChu : 'Học viên nộp file bài tập tự luận.',
+        ]);
+
+        $this->updateProgress($maHocVien, $maHoatDong);
+
+        $this->redirect(
+            'index.php?controller=clientlearning&action=show&course_id=' . $realCourseId,
+            'success',
+            'Nộp bài tập thành công! Hệ thống đã ghi nhận bài làm và cập nhật tiến độ học tập.'
+        );
     }
 
-    // Giao diện làm bài Quiz
-    public function doQuiz()
+    /**
+     * 3. Hiển thị giao diện làm bài kiểm tra trắc nghiệm (Quiz)
+     */
+    public function doQuiz(): void
     {
-        $id = $_GET['id'] ?? 0;
-        $quiz = $this->learningModel->getQuizById((int)$id);
+        $id   = max(0, (int) ($_GET['id'] ?? 0));
+        $quiz = $id > 0 ? $this->learningModel->getQuizById($id) : null;
+
+        if (!$quiz || ($quiz['Loai'] ?? '') !== 'quiz') {
+            $fallbackCourse = max(1, (int) ($_GET['course_id'] ?? 1));
+            $this->redirect(
+                'index.php?controller=clientlearning&action=show&course_id=' . $fallbackCourse,
+                'error',
+                'Không tìm thấy bài kiểm tra trắc nghiệm này.'
+            );
+        }
+
+        $courseId = (int) ($quiz['MaKhoaHoc'] ?? $this->learningModel->getCourseIdByActivity($id) ?? ($_GET['course_id'] ?? 1));
 
         $this->view('client/learning/do_quiz', [
-            'quiz' => $quiz
+            'quiz'      => $quiz,
+            'courseId'  => $courseId,
+            'pageTitle' => 'Làm bài Quiz: ' . ($quiz['TenHoatDong'] ?? ''),
         ]);
     }
 
-    // Xử lý nộp bài Quiz tự chấm điểm
-    public function submitQuiz()
+    /**
+     * 4. Chấm điểm tự động bài Quiz và đồng bộ tiến độ hoàn thành khóa học
+     */
+    public function submitQuiz(): void
     {
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $maHoatDong = $_POST['MaHoatDong'] ?? 0;
-            $courseId = $_POST['course_id'] ?? 1;
-            $maHocVien = $_SESSION['user_id'] ?? 1;
-            $answers = $_POST['answer'] ?? [];
+        $this->requireRoles(['student']);
 
-            // Lấy thông tin Quiz và đáp án đúng từ DB để chấm điểm tự động
-            $quiz = $this->learningModel->getQuizById((int)$maHoatDong);
-            $questions = json_decode($quiz['DuLieuQuizJSON'] ?? '[]', true);
-
-            $score = 0;
-            $totalQ = count($questions);
-
-            foreach ($questions as $index => $q) {
-                if (isset($answers[$index])) {
-                    $hocVienChon = trim((string)$answers[$index]);
-                    $dapAnDung = trim((string)($q['answer'] ?? ''));
-
-                    // Hỗ trợ so sánh linh hoạt cả dạng chữ cái (A, B, C, D) lẫn dạng index số (0, 1, 2, 3)
-                    $isCorrect = false;
-                    
-                    if (strcasecmp($hocVienChon, $dapAnDung) === 0) {
-                        $isCorrect = true;
-                    } else {
-                        // Quy đổi chữ cái sang số nếu cần thiết (A=0, B=1, C=2, D=3)
-                        $mapLetterToNum = ['A' => 0, 'B' => 1, 'C' => 2, 'D' => 3];
-                        $numDung = $mapLetterToNum[strtoupper($dapAnDung)] ?? -1;
-                        if ((int)$hocVienChon === $numDung) {
-                            $isCorrect = true;
-                        }
-                    }
-
-                    if ($isCorrect) {
-                        $score += (10.0 / ($totalQ > 0 ? $totalQ : 1));
-                    }
-                }
-            }
-            $finalScore = round($score, 1);
-
-            // Gọi hàm từ Model để lưu kết quả bài nộp an toàn
-            $this->learningModel->saveQuizSubmission(
-                (int)$maHoatDong,
-                (int)$maHocVien,
-                json_encode($answers),
-                $finalScore
-            );
-
-            // Cập nhật tiến độ học tập
-            $this->updateProgress($maHocVien, $maHoatDong);
-
-            header('Location: index.php?controller=clientLearning&action=show&course_id=' . $courseId);
-            exit();
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            $this->redirect('index.php?controller=dashboard&action=index&view=mine');
         }
+
+        $user       = Session::getUser();
+        $maHocVien  = $this->courseModel->getStudentIdForUser((int) ($user['MaNguoiDung'] ?? 0));
+        $maHoatDong = max(0, (int) ($_POST['MaHoatDong'] ?? 0));
+        $courseId   = max(1, (int) ($_POST['course_id'] ?? 1));
+        $answers    = is_array($_POST['answer'] ?? null) ? $_POST['answer'] : [];
+
+        $quiz = $maHoatDong > 0 ? $this->learningModel->getQuizById($maHoatDong) : null;
+        if ($maHocVien === null || !$quiz) {
+            $this->redirect(
+                'index.php?controller=clientlearning&action=show&course_id=' . $courseId,
+                'error',
+                'Dữ liệu bài kiểm tra không hợp lệ.'
+            );
+        }
+
+        $realCourseId = (int) ($quiz['MaKhoaHoc'] ?? $this->learningModel->getCourseIdByActivity($maHoatDong) ?? $courseId);
+        $decoded      = json_decode((string) ($quiz['DuLieuQuizJSON'] ?? '[]'), true);
+        $questions    = is_array($decoded) ? array_values($decoded) : [];
+        $totalQ       = count($questions);
+
+        if ($totalQ === 0) {
+            $this->redirect(
+                'index.php?controller=clientlearning&action=show&course_id=' . $realCourseId,
+                'error',
+                'Bài Quiz này chưa có câu hỏi nào để chấm điểm.'
+            );
+        }
+
+        $maxScore     = (isset($quiz['DiemToiDa']) && (float) $quiz['DiemToiDa'] > 0) ? (float) $quiz['DiemToiDa'] : 10.0;
+        $correctCount = 0;
+
+        foreach ($questions as $index => $q) {
+            if (!array_key_exists($index, $answers)) {
+                continue;
+            }
+            $options       = is_array($q['options'] ?? null) ? $q['options'] : [];
+            $studentLetter = $this->normalizeQuizChoice($answers[$index], $options);
+            $correctLetter = $this->normalizeQuizChoice($q['answer'] ?? '', $options);
+
+            if ($studentLetter !== '' && $studentLetter === $correctLetter) {
+                $correctCount++;
+            }
+        }
+
+        $finalScore = round(($correctCount / $totalQ) * $maxScore, 1);
+
+        $this->learningModel->saveQuizSubmission(
+            $maHoatDong,
+            $maHocVien,
+            (string) json_encode($answers, JSON_UNESCAPED_UNICODE),
+            $finalScore
+        );
+
+        $this->updateProgress($maHocVien, $maHoatDong);
+
+        $this->redirect(
+            'index.php?controller=clientlearning&action=show&course_id=' . $realCourseId,
+            'success',
+            "Hoàn thành bài Quiz! Bạn trả lời đúng {$correctCount}/{$totalQ} câu — Điểm số: {$finalScore}/{$maxScore}."
+        );
     }
 
-    // Hàm phụ trợ cập nhật tiến độ học tập thông qua Model
-    private function updateProgress(int $maHocVien, int $maHoatDong)
+    /**
+     * Chuẩn hóa đáp án Quiz về chữ cái A/B/C/D (Hỗ trợ cả chỉ số 0..3, chữ A..D hoặc nội dung phương án)
+     */
+    private function normalizeQuizChoice(mixed $choice, array $options = []): string
+    {
+        if ($choice === null) {
+            return '';
+        }
+        $str = trim((string) $choice);
+        if ($str === '') {
+            return '';
+        }
+
+        $indexMap = ['0' => 'A', '1' => 'B', '2' => 'C', '3' => 'D'];
+        if (isset($indexMap[$str])) {
+            return $indexMap[$str];
+        }
+
+        $upper = strtoupper($str);
+        if (in_array($upper, ['A', 'B', 'C', 'D'], true)) {
+            return $upper;
+        }
+
+        foreach (array_values($options) as $idx => $optText) {
+            if (trim((string) $optText) === $str && isset($indexMap[(string) $idx])) {
+                return $indexMap[(string) $idx];
+            }
+        }
+
+        return $upper;
+    }
+
+    /**
+     * Đồng bộ lại phần trăm tiến độ hoàn thành khóa học vào bảng DangKyKhoaHoc
+     */
+    private function updateProgress(int $maHocVien, int $maHoatDong): void
     {
         $maKhoaHoc = $this->learningModel->getCourseIdByActivity($maHoatDong);
-        if (!$maKhoaHoc) return;
+        if (!$maKhoaHoc) {
+            return;
+        }
 
         $totalAct = $this->learningModel->getTotalActivitiesByCourse($maKhoaHoc);
-        $doneAct = $this->learningModel->getCompletedActivitiesCount($maHocVien, $maKhoaHoc);
-
-        $percent = $totalAct > 0 ? round(($doneAct / $totalAct) * 100, 2) : 0;
+        $doneAct  = $this->learningModel->getCompletedActivitiesCount($maHocVien, $maKhoaHoc);
+        $percent  = $totalAct > 0 ? round(($doneAct / $totalAct) * 100, 2) : 0.0;
 
         $this->learningModel->updateCourseProgress($maHocVien, $maKhoaHoc, $doneAct, $percent);
     }

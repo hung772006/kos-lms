@@ -1,244 +1,394 @@
-<div class="container-fluid px-4 pt-3">
-    <!-- Thanh điều hướng Tab chuyên nghiệp -->
-    <div class="card border-0 shadow-sm p-3 mb-4" style="border-radius: 14px; background: #ffffff;">
-        <div class="d-flex flex-wrap align-items-center gap-3">
-            <button class="btn nav-pag-btn active" id="tab-video" type="button" onclick="switchTab('video-pane', 'tab-video')">
-                Bài học Video
-            </button>
-            <button class="btn nav-pag-btn" id="tab-material" type="button" onclick="switchTab('material-pane', 'tab-material')">
-                Tài liệu & Slide
-            </button>
-            <button class="btn nav-pag-btn" id="tab-assignment" type="button" onclick="switchTab('assignment-pane', 'tab-assignment')">
-                Bài tập & Quiz
-            </button>
+<?php
+$escape = static fn ($val): string => htmlspecialchars((string) ($val ?? ''), ENT_QUOTES, 'UTF-8');
+
+$resolveFileUrl = static function (?string $path): string {
+    if ($path === null || trim($path) === '') {
+        return '';
+    }
+    $clean = ltrim(trim($path), '/');
+    if (str_starts_with($clean, 'http://') || str_starts_with($clean, 'https://') || str_starts_with($clean, 'public/')) {
+        return $clean;
+    }
+    if (is_file(__DIR__ . '/../../../public/' . $clean)) {
+        return 'public/' . $clean;
+    }
+    return $clean;
+};
+
+$toEmbedYoutube = static function (?string $url): array {
+    $raw = trim((string) ($url ?? ''));
+    if ($raw === '') {
+        return ['embed' => '', 'id' => ''];
+    }
+    $videoId = '';
+    if (str_contains($raw, 'watch?v=')) {
+        $parts   = explode('watch?v=', $raw, 2);
+        $videoId = explode('&', $parts[1])[0];
+        $embed   = 'https://www.youtube.com/embed/' . $videoId;
+    } elseif (str_contains($raw, 'youtu.be/')) {
+        $parts   = explode('youtu.be/', $raw, 2);
+        $videoId = explode('?', $parts[1])[0];
+        $embed   = 'https://www.youtube.com/embed/' . $videoId;
+    } elseif (str_contains($raw, 'embed/')) {
+        $parts   = explode('embed/', $raw, 2);
+        $videoId = explode('?', $parts[1])[0];
+        $embed   = $raw;
+    } else {
+        $embed = $raw;
+    }
+    return ['embed' => $embed, 'id' => $videoId];
+};
+
+$courseId       = (int) ($courseId ?? 1);
+$progress       = max(0, min(100, (float) ($progress ?? 0)));
+$submissionsMap = $submissionsMap ?? [];
+$submittedIds   = array_map('intval', $submittedActivityIds ?? []);
+?>
+
+<style>
+    .learn-banner { background:#fff; border:1px solid var(--border); border-radius:18px; padding:22px 26px; margin-bottom:20px; box-shadow:var(--shadow); display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; }
+    .learn-banner-info h2 { font-size:21px; font-weight:800; color:var(--ink); margin-bottom:4px; }
+    .learn-banner-meta { font-size:13px; color:#666; }
+    .learn-progress-wrap { min-width:240px; flex:1; max-width:340px; }
+    .learn-progress-top { display:flex; justify-content:space-between; font-size:12px; font-weight:700; margin-bottom:6px; }
+    .learn-progress-bar { height:8px; background:var(--border); border-radius:999px; overflow:hidden; }
+    .learn-progress-fill { height:100%; background:linear-gradient(90deg, var(--gold), #e8d08a); border-radius:999px; }
+
+    .learn-tabs-bar { background:#fff; border:1px solid var(--border); border-radius:14px; padding:10px 14px; margin-bottom:22px; display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+    .learn-tabs-group { display:flex; gap:10px; flex-wrap:wrap; }
+    .nav-pag-btn { padding:10px 20px; font-weight:700; font-size:13px; border-radius:10px; background:var(--cream); color:#555; border:1px solid var(--border); cursor:pointer; font-family:inherit; transition:all 0.15s; }
+    .nav-pag-btn:hover { color:var(--ink); border-color:#ccc; }
+    .nav-pag-btn.active { background:var(--gold); color:var(--ink); border-color:var(--gold); }
+
+    .video-layout { display:flex; gap:24px; align-items:flex-start; }
+    .video-player-col { flex:1; min-width:0; }
+    .video-list-col { width:360px; flex-shrink:0; }
+    .video-box { background:#fff; border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow:var(--shadow); }
+    .video-frame-wrap { width:100%; aspect-ratio:16 / 9; background:#0d0d12; border-radius:12px; overflow:hidden; margin-bottom:14px; position:relative; }
+    .video-frame-wrap iframe { width:100%; height:100%; border:0; display:block; }
+    .yt-list-scroll { max-height:480px; overflow-y:auto; padding-right:4px; }
+    .yt-item { display:flex; align-items:center; gap:12px; padding:10px; margin-bottom:10px; background:#fff; border:1.5px solid var(--border); border-radius:12px; cursor:pointer; transition:all 0.15s; }
+    .yt-item:hover { border-color:var(--gold); background:#fcfbf7; }
+    .yt-item.active-yt-item { background:#fffdf2; border-color:var(--gold); }
+    .yt-thumb { width:96px; height:54px; flex-shrink:0; border-radius:8px; overflow:hidden; background:var(--ink); display:flex; align-items:center; justify-content:center; color:var(--gold); font-weight:800; font-size:12px; }
+    .yt-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+
+    .kos-mat-card { background:#fff; border:1px solid var(--border); border-radius:16px; padding:24px; box-shadow:var(--shadow); }
+    .kos-table { width:100%; border-collapse:collapse; font-size:13px; margin-top:12px; }
+    .kos-table th { text-align:left; padding:12px 14px; background:var(--cream); border-bottom:1.5px solid var(--border); font-size:11px; font-weight:700; text-transform:uppercase; color:#666; }
+    .kos-table td { padding:14px; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .kos-table tbody tr:last-child td { border-bottom:none; }
+
+    .asg-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:20px; }
+    .asg-card { background:#fff; border:1px solid var(--border); border-radius:16px; padding:22px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:12px; }
+    .asg-top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+    .asg-result-box { background:var(--cream); border:1px solid var(--border); border-radius:12px; padding:14px; font-size:13px; display:grid; gap:6px; }
+    .asg-upload-form { background:var(--cream); border:1px dashed #cbd5e0; border-radius:12px; padding:14px; margin-top:auto; }
+    .asg-upload-form input[type="file"] { width:100%; font-size:12px; margin-bottom:10px; }
+    .asg-upload-form input[type="text"] { width:100%; padding:8px 11px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:12px; margin-bottom:10px; background:#fff; }
+
+    @media (max-width:960px) {
+        .video-layout { flex-direction:column; }
+        .video-list-col { width:100%; }
+        .asg-grid { grid-template-columns:1fr; }
+    }
+</style>
+
+<div class="learn-banner">
+    <div class="learn-banner-info">
+        <h2><?= $escape($course['TenKhoaHoc'] ?? 'Không gian học tập trực tuyến') ?></h2>
+        <div class="learn-banner-meta">
+            Giảng viên: <strong><?= $escape($course['TenGiaoVien'] ?? 'KOS English') ?></strong>
+            <?php if (!empty($course['DanhMuc'])): ?>
+                · Danh mục: <span class="badge"><?= $escape($course['DanhMuc']) ?></span>
+            <?php endif; ?>
         </div>
     </div>
+    <div class="learn-progress-wrap">
+        <div class="learn-progress-top">
+            <span>Tiến độ hoàn thành khóa học</span>
+            <span style="color:var(--gold);font-size:14px;"><?= number_format($progress, 0) ?>%</span>
+        </div>
+        <div class="learn-progress-bar">
+            <div class="learn-progress-fill" style="width:<?= $progress ?>%;"></div>
+        </div>
+    </div>
+</div>
 
-    <!-- Nội dung các Tab -->
-    <div class="tab-content-custom">
-        
-        <!-- Tab 1: Giao diện chuẩn YouTube (Dùng Flexbox ép nằm ngang trái - phải cố định) -->
-        <div class="custom-tab-pane" id="video-pane" style="display: block;">
-            <div style="display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;">
-                
-                <!-- BÊN TRÁI: Khung phát video chính (chiếm không gian rộng) -->
-                <div style="flex: 1; min-width: 320px;">
-                    <div class="card border-0 shadow-sm p-3" style="border-radius: 16px; background: #fff;">
-                        <div class="ratio ratio-16x9 bg-dark rounded-3 overflow-hidden mb-3">
-                            <?php 
-                            $defaultVideoUrl = 'https://www.youtube.com/embed/dQw4w9WgXcQ';
-                            $defaultTitle = 'Chưa có bài giảng';
-                            $defaultChapter = '';
-                            if (!empty($videos)) {
-                                $firstVid = $videos[0];
-                                $defaultTitle = $firstVid['TenHoatDong'];
-                                $defaultChapter = $firstVid['TenChuong'] ?? '';
-                                $rawLink = $firstVid['LinkVideo'] ?? '';
-                                if (strpos($rawLink, 'watch?v=') !== false) {
-                                    $defaultVideoUrl = str_replace('watch?v=', 'embed/', $rawLink);
-                                } elseif (!empty($rawLink)) {
-                                    $defaultVideoUrl = $rawLink;
-                                }
-                            }
+<div class="learn-tabs-bar">
+    <div class="learn-tabs-group">
+        <button class="nav-pag-btn active" id="tab-video" type="button" onclick="switchTab('video-pane', 'tab-video')">
+            🎬 Bài học Video (<?= count($videos ?? []) ?>)
+        </button>
+        <button class="nav-pag-btn" id="tab-material" type="button" onclick="switchTab('material-pane', 'tab-material')">
+            📚 Tài liệu &amp; Slide (<?= count($materials ?? []) ?>)
+        </button>
+        <button class="nav-pag-btn" id="tab-assignment" type="button" onclick="switchTab('assignment-pane', 'tab-assignment')">
+            ✍️ Bài tập &amp; Quiz (<?= count($assignments ?? []) ?>)
+        </button>
+    </div>
+    <a href="index.php?controller=dashboard&amp;action=index&amp;view=mine" class="btn btn-outline btn-sm">
+        ← Về Khóa học của tôi
+    </a>
+</div>
+
+<!-- TAB 1: XEM BÀI GIẢNG VIDEO / SLIDE -->
+<div class="custom-tab-pane" id="video-pane" style="display:block;">
+    <?php
+    $firstVideoInfo = ['embed' => 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'id' => ''];
+    $defaultTitle   = 'Chưa có bài giảng video trong khóa học này';
+    $defaultChapter = '';
+    $defaultDesc    = '';
+
+    if (!empty($videos)) {
+        $firstVid       = $videos[0];
+        $defaultTitle   = $firstVid['TenHoatDong'] ?? '';
+        $defaultChapter = $firstVid['TenChuong'] ?? '';
+        $defaultDesc    = $firstVid['NoiDung'] ?? '';
+        $parsedFirst    = $toEmbedYoutube($firstVid['LinkVideo'] ?? '');
+        if ($parsedFirst['embed'] !== '') {
+            $firstVideoInfo = $parsedFirst;
+        }
+    }
+    ?>
+    <div class="video-layout">
+        <div class="video-player-col">
+            <div class="video-box">
+                <div class="video-frame-wrap">
+                    <iframe id="main-youtube-player" src="<?= $escape($firstVideoInfo['embed']) ?>" title="KOS Video Player" allowfullscreen></iframe>
+                </div>
+                <h3 id="main-video-title" style="font-size:18px;font-weight:800;color:var(--ink);margin-bottom:4px;"><?= $escape($defaultTitle) ?></h3>
+                <div id="main-video-chapter" style="font-size:12px;color:var(--gold);font-weight:700;margin-bottom:8px;">
+                    <?= $defaultChapter !== '' ? 'Chương: ' . $escape($defaultChapter) : '' ?>
+                </div>
+                <p id="main-video-desc" style="font-size:13px;color:#555;line-height:1.6;"><?= nl2br($escape($defaultDesc)) ?></p>
+            </div>
+        </div>
+
+        <div class="video-list-col">
+            <div class="video-box">
+                <h4 style="font-size:15px;font-weight:800;margin-bottom:12px;">Danh sách bài giảng</h4>
+                <div class="yt-list-scroll">
+                    <?php if (!empty($videos)): ?>
+                        <?php foreach ($videos as $index => $vid): ?>
+                            <?php
+                            $parsed = $toEmbedYoutube($vid['LinkVideo'] ?? '');
+                            $vUrl   = $parsed['embed'] !== '' ? $parsed['embed'] : 'https://www.youtube.com/embed/dQw4w9WgXcQ';
+                            $thumb  = $parsed['id'] !== '' ? "https://img.youtube.com/vi/{$parsed['id']}/mqdefault.jpg" : '';
                             ?>
-                            <iframe id="main-youtube-player" src="<?= htmlspecialchars($defaultVideoUrl) ?>" title="YouTube video player" allowfullscreen></iframe>
-                        </div>
-                        <h4 id="main-video-title" class="fw-bold text-dark mb-1" style="font-size: 18px;"><?= htmlspecialchars($defaultTitle) ?></h4>
-                        <p id="main-video-chapter" class="text-muted small mb-0">Chương: <?= htmlspecialchars($defaultChapter) ?></p>
-                    </div>
-                </div>
-
-                <!-- BÊN PHẢI: Danh sách bài học (Nằm đúng bên phải, bo viền từng bài tách biệt) -->
-                <div style="width: 380px; min-width: 280px; flex-shrink: 0;">
-                    <div class="card border-0 shadow-sm p-3" style="border-radius: 16px; background: #fff;">
-                        <h5 class="fw-bold mb-3 text-dark" style="font-size: 16px;">Danh sách bài học</h5>
-                        <div style="max-height: 500px; overflow-y: auto; padding-right: 4px;">
-                            <?php if (!empty($videos)): ?>
-                                <?php foreach ($videos as $index => $vid): ?>
-                                    <?php 
-                                        $vLink = $vid['LinkVideo'] ?? '';
-                                        $vId = '';
-                                        if (strpos($vLink, 'watch?v=') !== false) {
-                                            $parts = explode('watch?v=', $vLink);
-                                            $vId = explode('&', $parts[1])[0];
-                                            $vLink = str_replace('watch?v=', 'embed/', $vLink);
-                                        } elseif (strpos($vLink, 'embed/') !== false) {
-                                            $parts = explode('embed/', $vLink);
-                                            $vId = explode('?', $parts[1])[0];
-                                        }
-                                        $thumb = $vId ? "https://img.youtube.com/vi/{$vId}/mqdefault.jpg" : 'https://via.placeholder.com/160x90?text=KOS';
-                                    ?>
-                                    <!-- Mỗi bài học là một khung riêng biệt, thumbnail trái, chữ phải -->
-                                    <div class="yt-item <?= $index === 0 ? 'active-yt-item' : '' ?>" 
-                                         onclick="playThisVideo('<?= htmlspecialchars($vLink) ?>', '<?= htmlspecialchars(addslashes($vid['TenHoatDong'])) ?>', '<?= htmlspecialchars(addslashes($vid['TenChuong'] ?? '')) ?>', this)"
-                                         style="display: flex; align-items: center; gap: 12px; padding: 10px; margin-bottom: 12px; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
-                                        
-                                        <!-- Thumbnail nhỏ bên trái -->
-                                        <div style="width: 100px; height: 56px; flex-shrink: 0; border-radius: 6px; overflow: hidden; background: #000;">
-                                            <img src="<?= $thumb ?>" style="width: 100%; height: 100%; object-fit: cover;" alt="Thumb">
-                                        </div>
-                                        
-                                        <!-- Tiêu đề và chương nằm bên phải, tuyệt đối không đè ảnh -->
-                                        <div style="flex-grow: 1; min-width: 0;">
-                                            <h6 style="font-size: 13px; font-weight: bold; color: #1a1a1a; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><?= htmlspecialchars($vid['TenHoatDong']) ?></h6>
-                                            <p style="font-size: 11px; color: #6c757d; margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><?= htmlspecialchars($vid['TenChuong'] ?? '') ?></p>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <p class="text-muted small text-center py-3 mb-0">Chưa có bài học video nào.</p>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-
-        <!-- Tab 2: Tài liệu & Slide -->
-        <div class="custom-tab-pane" id="material-pane" style="display: none;">
-            <div class="card border-0 shadow-sm p-4" style="border-radius: 14px; background: #fff;">
-                <h5 class="fw-bold mb-3" style="color: #1a1a1a;">Tài liệu học tập & Slide bài giảng</h5>
-                <div class="table-responsive">
-                    <table class="table align-middle">
-                        <thead>
-                            <tr>
-                                <th>Tên tài liệu</th>
-                                <th>Định dạng</th>
-                                <th>Dung lượng</th>
-                                <th class="text-end">Thao tác</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if (!empty($materials)): ?>
-                                <?php foreach ($materials as $mat): ?>
-                                <tr>
-                                    <td class="fw-semibold"><?= htmlspecialchars($mat['TenHoatDong']) ?></td>
-                                    <td><span class="badge bg-secondary"><?= htmlspecialchars($mat['DinhDangFile'] ?? 'PDF') ?></span></td>
-                                    <td><?= htmlspecialchars($mat['DungLuongFile'] ?? '2.1 MB') ?></td>
-                                    <td class="text-end">
-                                        <a href="<?= htmlspecialchars($mat['FileDinhKem'] ?? '#') ?>" download class="btn btn-sm px-3 fw-bold text-dark" style="background: #e2b714; border-radius: 8px; text-decoration: none;">
-                                            Tải xuống
-                                        </a>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <tr>
-                                    <td colspan="4" class="text-center text-muted py-3">Chưa có tài liệu nào được tải lên.</td>
-                                </tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Tab 3: Bài tập & Quiz -->
-        <div class="custom-tab-pane" id="assignment-pane" style="display: none;">
-            <div class="row">
-                <?php if (!empty($assignments)): ?>
-                    <?php foreach ($assignments as $asg): ?>
-                    <div class="col-md-6 mb-4">
-                        <div class="card border-0 shadow-sm p-4 h-100" style="border-radius: 14px; background: #fff; border: 1px solid #f1f3f5;">
-                            <h5 class="fw-bold mb-2" style="color: #1a1a1a;"><?= htmlspecialchars($asg['TenHoatDong']) ?></h5>
-                            <p class="text-muted small mb-3"><?= htmlspecialchars($asg['NoiDung'] ?? 'Hoàn thành và nộp bài tập đúng hạn.') ?></p>
-                            <p class="mb-3 text-secondary small"><strong>Hạn nộp:</strong> <?= htmlspecialchars($asg['HanNop'] ?? 'Không giới hạn') ?></p>
-                            
-                            <div class="mt-auto">
-                                <?php if (in_array($asg['MaHoatDong'], $submittedActivityIds ?? [])): ?>
-                                    <div class="alert alert-success py-2 px-3 text-center mb-0 fw-bold" style="border-radius: 8px; font-size: 14px;">
-                                        Đã hoàn thành
-                                    </div>
-                                <?php else: ?>
-                                    <?php if (($asg['Loai'] ?? '') === 'assignment'): ?>
-                                        <form action="index.php?controller=clientLearning&action=uploadAssignment" method="POST" enctype="multipart/form-data" class="mt-3">
-                                            <input type="hidden" name="MaHoatDong" value="<?= $asg['MaHoatDong'] ?>">
-                                            <input type="hidden" name="course_id" value="<?= $courseId ?>">
-                                            <div class="mb-2">
-                                                <input type="file" name="FileBaiNop" class="form-control form-control-sm" required style="border-radius: 8px;">
-                                            </div>
-                                            <button type="submit" class="btn btn-sm px-4 fw-bold text-dark w-100" style="background: #e2b714; border-radius: 8px;">
-                                                Nộp bài tập
-                                            </button>
-                                        </form>
+                            <div
+                                class="yt-item <?= $index === 0 ? 'active-yt-item' : '' ?>"
+                                data-url="<?= $escape($vUrl) ?>"
+                                data-title="<?= $escape($vid['TenHoatDong'] ?? '') ?>"
+                                data-chapter="<?= $escape($vid['TenChuong'] ?? '') ?>"
+                                data-desc="<?= $escape($vid['NoiDung'] ?? '') ?>"
+                                onclick="playThisVideo(this)"
+                            >
+                                <div class="yt-thumb">
+                                    <?php if ($thumb !== ''): ?>
+                                        <img src="<?= $escape($thumb) ?>" alt="Thumb">
                                     <?php else: ?>
-                                        <a href="index.php?controller=clientLearning&action=doQuiz&id=<?= $asg['MaHoatDong'] ?>&course_id=<?= $courseId ?>" class="btn btn-sm px-4 fw-bold text-dark w-100" style="background: #e2b714; border-radius: 8px; text-decoration: none; display: inline-block; text-align: center; padding: 6px 0;">
-                                            Làm bài Quiz ngay
-                                        </a>
+                                        <span>▶ VIDEO</span>
                                     <?php endif; ?>
-                                <?php endif; ?>
+                                </div>
+                                <div style="flex:1;min-width:0;">
+                                    <div style="font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                        <?= $escape($vid['TenHoatDong'] ?? '') ?>
+                                    </div>
+                                    <div style="font-size:11px;color:#777;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                        <?= $escape($vid['TenChuong'] ?? '') ?>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                <?php else: ?>
-                    <div class="col-12">
-                        <p class="text-muted text-center py-3">Chưa có bài tập hoặc quiz nào cho khóa học này.</p>
-                    </div>
-                <?php endif; ?>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <p style="font-size:13px;color:#888;text-align:center;padding:20px 0;">Chưa có bài giảng video nào.</p>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<style>
-.nav-pag-btn {
-    padding: 10px 22px;
-    font-weight: 600;
-    font-size: 14.5px;
-    border-radius: 10px;
-    background-color: #f8f9fa;
-    color: #495057;
-    border: 1px solid #e9ecef;
-    transition: all 0.2s ease;
-}
-.nav-pag-btn:hover {
-    background-color: #e9ecef;
-    color: #1a1a1a;
-}
-.nav-pag-btn.active {
-    background-color: #e2b714 !important;
-    color: #111111 !important;
-    border-color: #d1a80d !important;
-    box-shadow: 0 4px 12px rgba(226, 183, 20, 0.3);
-}
+<!-- TAB 2: TẢI TÀI LIỆU & SLIDE (DOWNLOAD FILE CLIENT) -->
+<div class="custom-tab-pane" id="material-pane" style="display:none;">
+    <div class="kos-mat-card">
+        <h3 style="font-size:17px;font-weight:800;color:var(--ink);">📚 Tài liệu học tập &amp; Giáo trình đính kèm</h3>
+        <p style="font-size:13px;color:#666;margin-top:4px;">Bấm tải xuống để lưu tài liệu PDF, Slide bài giảng hoặc bộ file nghe ZIP về máy.</p>
 
-.yt-item:hover {
-    background-color: #f8f9fa !important;
-    border-color: #d1a80d !important;
-}
-.yt-item.active-yt-item {
-    background-color: #fdf8e2 !important;
-    border-color: #e2b714 !important;
-    box-shadow: 0 2px 5px rgba(226, 183, 20, 0.2);
-}
-</style>
+        <div style="overflow-x:auto;">
+            <table class="kos-table">
+                <thead>
+                    <tr>
+                        <th>Tên học liệu / Bài học</th>
+                        <th>Chương học</th>
+                        <th>Định dạng</th>
+                        <th>Dung lượng</th>
+                        <th style="text-align:right;">Tải file</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (!empty($materials)): ?>
+                        <?php foreach ($materials as $mat): ?>
+                            <?php $matUrl = $resolveFileUrl($mat['FileDinhKem'] ?? null); ?>
+                            <tr>
+                                <td style="font-weight:700;color:var(--ink);"><?= $escape($mat['TenHoatDong'] ?? '') ?></td>
+                                <td style="color:#666;"><?= $escape($mat['TenChuong'] ?? '') ?></td>
+                                <td><span class="badge" style="background:#e8f0fe;color:#1d3557;"><?= $escape($mat['DinhDangFile'] ?? strtoupper(pathinfo($matUrl, PATHINFO_EXTENSION) ?: 'PDF')) ?></span></td>
+                                <td style="color:#666;"><?= $escape($mat['DungLuongFile'] ?? '—') ?></td>
+                                <td style="text-align:right;">
+                                    <?php if ($matUrl !== ''): ?>
+                                        <a href="<?= $escape($matUrl) ?>" target="_blank" download class="btn btn-gold btn-sm">
+                                            ⬇ Tải xuống
+                                        </a>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr>
+                            <td colspan="5" style="text-align:center;padding:32px;color:#888;">Chưa có tài liệu đính kèm nào cho khóa học này.</td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- TAB 3: BÀI TẬP TỰ LUẬN (UPLOAD FILE CLIENT) & LÀM QUIZ TỰ CHẤM -->
+<div class="custom-tab-pane" id="assignment-pane" style="display:none;">
+    <div class="asg-grid">
+        <?php if (!empty($assignments)): ?>
+            <?php foreach ($assignments as $asg): ?>
+                <?php
+                $actId     = (int) ($asg['MaHoatDong'] ?? 0);
+                $isQuiz    = strtolower((string) ($asg['Loai'] ?? '')) === 'quiz';
+                $maxPts    = (isset($asg['DiemToiDa']) && (float) $asg['DiemToiDa'] > 0) ? (float) $asg['DiemToiDa'] : 10.0;
+                $subRecord = $submissionsMap[$actId] ?? null;
+                $isDone    = $subRecord !== null || in_array($actId, $submittedIds, true);
+                $subFile   = $subRecord ? $resolveFileUrl($subRecord['FileBaiNop'] ?? null) : '';
+                ?>
+                <div class="asg-card">
+                    <div class="asg-top">
+                        <div>
+                            <span class="badge" style="<?= $isQuiz ? 'background:#fef3c7;color:#92400e;' : 'background:#dff0d8;color:var(--green);' ?>margin-bottom:6px;">
+                                <?= $isQuiz ? '⚡ Trắc nghiệm Quiz' : '📝 Bài tập tự luận' ?>
+                            </span>
+                            <h4 style="font-size:16px;font-weight:800;color:var(--ink);"><?= $escape($asg['TenHoatDong'] ?? '') ?></h4>
+                            <?php if (!empty($asg['TenChuong'])): ?>
+                                <div style="font-size:12px;color:#888;margin-top:2px;"><?= $escape($asg['TenChuong']) ?></div>
+                            <?php endif; ?>
+                        </div>
+                        <span style="font-size:12px;font-weight:700;color:#555;white-space:nowrap;">Thang <?= $escape($maxPts) ?>đ</span>
+                    </div>
+
+                    <p style="font-size:13px;color:#555;line-height:1.6;">
+                        <?= nl2br($escape($asg['NoiDung'] ?? 'Hoàn thành bài tập theo hướng dẫn và nộp đúng thời hạn.')) ?>
+                    </p>
+
+                    <div style="font-size:12px;color:#666;">
+                        <strong>📅 Hạn nộp:</strong> <?= !empty($asg['HanNop']) ? $escape($asg['HanNop']) : 'Không giới hạn' ?>
+                    </div>
+
+                    <?php if ($isDone && $subRecord !== null): ?>
+                        <div class="asg-result-box">
+                            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                                <?php if (($subRecord['TrangThai'] ?? '') === 'graded' || $subRecord['SoDiem'] !== null): ?>
+                                    <span style="color:var(--green);font-weight:700;">✅ Đã chấm điểm</span>
+                                    <strong style="font-size:16px;color:var(--green);">Điểm: <?= $escape($subRecord['SoDiem']) ?>/<?= $escape($maxPts) ?></strong>
+                                <?php elseif (($subRecord['TrangThai'] ?? '') === 'late'): ?>
+                                    <span style="color:var(--red);font-weight:700;">⏰ Đã nộp (Muộn hạn) — Chờ chấm</span>
+                                <?php else: ?>
+                                    <span style="color:#92400e;font-weight:700;">⏳ Đã nộp bài — Chờ giáo viên chấm</span>
+                                <?php endif; ?>
+                            </div>
+
+                            <?php if (!empty($subRecord['NhanXet'])): ?>
+                                <div style="color:#333;padding-top:4px;border-top:1px dashed var(--border);">
+                                    <strong>Nhận xét:</strong> <?= $escape($subRecord['NhanXet']) ?>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if ($subFile !== ''): ?>
+                                <div>
+                                    <a href="<?= $escape($subFile) ?>" target="_blank" download style="font-size:12px;color:#1d3557;font-weight:700;">
+                                        📎 Xem file bài làm đã nộp
+                                    </a>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+
+                        <?php if ($isQuiz): ?>
+                            <a href="index.php?controller=clientlearning&amp;action=doquiz&amp;id=<?= $actId ?>&amp;course_id=<?= $courseId ?>" class="btn btn-outline btn-sm" style="margin-top:auto;">
+                                🔄 Làm lại bài Quiz
+                            </a>
+                        <?php elseif (($subRecord['TrangThai'] ?? '') !== 'graded'): ?>
+                            <form action="index.php?controller=clientlearning&amp;action=uploadassignment" method="POST" enctype="multipart/form-data" class="asg-upload-form">
+                                <input type="hidden" name="MaHoatDong" value="<?= $actId ?>">
+                                <input type="hidden" name="course_id" value="<?= $courseId ?>">
+                                <div style="font-size:11px;font-weight:700;color:#555;margin-bottom:6px;">Nộp cập nhật lại file bài làm:</div>
+                                <input type="file" name="FileBaiNop" accept=".pdf,.doc,.docx,.zip,.pptx,.txt,.png,.jpg,.jpeg" required>
+                                <button type="submit" class="btn btn-outline btn-sm" style="width:100%;">📤 Nộp lại file mới</button>
+                            </form>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <?php if (!$isQuiz): ?>
+                            <form action="index.php?controller=clientlearning&amp;action=uploadassignment" method="POST" enctype="multipart/form-data" class="asg-upload-form">
+                                <input type="hidden" name="MaHoatDong" value="<?= $actId ?>">
+                                <input type="hidden" name="course_id" value="<?= $courseId ?>">
+                                <input type="text" name="NoiDungBaiLam" placeholder="Ghi chú bài nộp cho giáo viên (tùy chọn)...">
+                                <input type="file" name="FileBaiNop" accept=".pdf,.doc,.docx,.zip,.pptx,.txt,.png,.jpg,.jpeg" required>
+                                <button type="submit" class="btn btn-gold" style="width:100%;">📤 Tải lên &amp; Nộp bài tập</button>
+                            </form>
+                        <?php else: ?>
+                            <a href="index.php?controller=clientlearning&amp;action=doquiz&amp;id=<?= $actId ?>&amp;course_id=<?= $courseId ?>" class="btn btn-gold" style="margin-top:auto;width:100%;">
+                                ⚡ Bắt đầu làm bài Quiz
+                            </a>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <div class="card" style="grid-column:1 / -1;text-align:center;color:#888;padding:40px;">
+                Chưa có bài tập tự luận hoặc bài kiểm tra Quiz nào trong khóa học này.
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
 
 <script>
 function switchTab(paneId, btnId) {
-    document.querySelectorAll('.custom-tab-pane').forEach(pane => {
+    document.querySelectorAll('.custom-tab-pane').forEach(function(pane) {
         pane.style.display = 'none';
     });
-    document.querySelectorAll('.nav-pag-btn').forEach(btn => {
+    document.querySelectorAll('.nav-pag-btn').forEach(function(btn) {
         btn.classList.remove('active');
     });
-    const targetPane = document.getElementById(paneId);
+    var targetPane = document.getElementById(paneId);
     if (targetPane) targetPane.style.display = 'block';
-    const targetBtn = document.getElementById(btnId);
+    var targetBtn = document.getElementById(btnId);
     if (targetBtn) targetBtn.classList.add('active');
 }
 
-function playThisVideo(url, title, chapter, element) {
-    const iframe = document.getElementById('main-youtube-player');
-    if (iframe) iframe.src = url;
+function playThisVideo(element) {
+    var url     = element.getAttribute('data-url') || '';
+    var title   = element.getAttribute('data-title') || '';
+    var chapter = element.getAttribute('data-chapter') || '';
+    var desc    = element.getAttribute('data-desc') || '';
 
-    const titleEl = document.getElementById('main-video-title');
-    const chapterEl = document.getElementById('main-video-chapter');
+    var iframe = document.getElementById('main-youtube-player');
+    if (iframe && url !== '') iframe.src = url;
+
+    var titleEl   = document.getElementById('main-video-title');
+    var chapterEl = document.getElementById('main-video-chapter');
+    var descEl    = document.getElementById('main-video-desc');
+
     if (titleEl) titleEl.textContent = title;
-    if (chapterEl) chapterEl.textContent = 'Chương: ' + chapter;
+    if (chapterEl) chapterEl.textContent = chapter ? ('Chương: ' + chapter) : '';
+    if (descEl) descEl.textContent = desc;
 
-    document.querySelectorAll('.yt-item').forEach(item => {
+    document.querySelectorAll('.yt-item').forEach(function(item) {
         item.classList.remove('active-yt-item');
     });
     element.classList.add('active-yt-item');
